@@ -10,6 +10,7 @@ import { z } from 'zod';
  * @property {number} [rating] - Product rating (0-5)
  * @property {number} [reviews] - Number of reviews
  * @property {string|null} [image] - Product image URL
+ * @property {string} sourceUrl - Source URL for Audit Trail (per storage.md)
  */
 
 /**
@@ -27,6 +28,7 @@ export const ProductSchema = z.object({
     rating: z.number().optional(),
     reviews: z.number().optional(),
     image: z.string().nullable().optional(),
+    sourceUrl: z.string().url(), // Audit Trail field (per storage.md)
 });
 
 export const SessionSchema = z.object({
