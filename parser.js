@@ -331,7 +331,6 @@ async function main() {
         logger.info({ savedCount }, 'Products saved to database via upsert');
 
         if (process.env.OUTPUT_JSON === 'true') {
-            const { writeFile } = await import('fs/promises');
             const outputFile = join(__dirname, `products-${query.replace(/\s+/g, '-')}.json`);
             await writeFile(outputFile, JSON.stringify(result, null, 2), 'utf-8');
             logger.info({ file: outputFile }, 'Exported products to JSON file');

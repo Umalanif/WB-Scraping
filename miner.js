@@ -26,18 +26,40 @@ const WB_URL = 'https://www.wildberries.ru/';
  * @typedef {import('./schemas.js').SessionData} SessionData
  */
 
+/**
+ * Saves session data to disk
+ * @param {SessionData} sessionData
+ * @returns {Promise<void>}
+ */
 async function saveSession(sessionData) {
     await writeFile(SESSION_FILE, JSON.stringify(sessionData, null, 2), 'utf-8');
     logger.info({ file: SESSION_FILE }, 'Session saved to file');
 }
 
+/**
+ * Loads session data from disk
+ * @returns {Promise<SessionData|null>}
+ */
 async function loadSession() {
     try {
         const content = await readFile(SESSION_FILE, 'utf-8');
         return JSON.parse(content);
-    } catch (error) {
+    } catch {
         return null;
     }
+}
+
+/**
+ * Checks if existing session is valid and has x_wbaas_token
+ * @param {SessionData} session
+ * @returns {Promise<boolean>}
+ */
+async function hasValidSession(session) {
+    const validated = validateSession(session);
+    if (!validated.success) {
+        return false;
+    }
+    return session.cookies.some((c) => c.name === 'x_wbaas_token');
 }
 
 async function main() {
@@ -45,17 +67,12 @@ async function main() {
     logger.info({ headless }, 'Starting Miner with configuration');
 
     const existingSession = await loadSession();
-    if (existingSession) {
-        const validated = validateSession(existingSession);
-        if (validated.success) {
-            const hasToken = existingSession.cookies.some((c) => c.name === 'x_wbaas_token');
-            if (hasToken) {
-                logger.info('Valid session with x_wbaas_token already exists. Skipping mining.');
-                return;
-            }
-            logger.warn('Existing session missing x_wbaas_token. Re-mining...');
-        }
+    if (existingSession && await hasValidSession(existingSession)) {
+        logger.info('Valid session with x_wbaas_token already exists. Skipping mining.');
+        return;
     }
+
+    logger.warn('No valid session found. Starting session mining...');
 
     const crawler = new PlaywrightCrawler({
         headless,

@@ -10,9 +10,10 @@ node_modules/
 *.db
 *.sqlite
 *.sqlite3
+database.db
+storage/
 
 # Crawlee/Puppeteer storage
-storage/
 
 # Browser session data
 session.json

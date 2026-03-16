@@ -2,15 +2,12 @@
   "name": "wb",
   "version": "1.0.0",
   "description": "Wildberries search parser via Network Interception",
-  "main": "wb-search-parser.js",
+  "main": "parser.js",
   "type": "module",
   "scripts": {
-    "start": "node wb-search-parser.js",
     "miner": "node miner.js",
-    "miner:headless": "cross-env HEADLESS=true node miner.js",
     "parser": "node parser.js",
     "parser:json": "cross-env OUTPUT_JSON=true node parser.js",
-    "gas-burner": "node gas-burner-parser.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

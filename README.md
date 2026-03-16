@@ -1,8 +1,8 @@
 # Wildberries Hybrid Parser (Crawlee + Got + Prisma)
 
-Enterprise-grade parser для Wildberries.ru с двухэтапной архитектурой и персистентным хранением данных.
+Enterprise-grade Wildberries.ru parser with two-stage architecture and persistent data storage.
 
-## 🏗️ Архитектура
+## 🏗️ Architecture
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
@@ -18,152 +18,167 @@ Enterprise-grade parser для Wildberries.ru с двухэтапной архи
                                                  └─────────────────┘
 ```
 
-### Компоненты
+### Components
 
-| Модуль | Технология | Назначение |
+| Module | Technology | Purpose |
 |--------|-----------|------------|
-| **miner.js** | PlaywrightCrawler | Обход защиты WB, получение сессии (куки + x_wbaas_token) |
-| **parser.js** | got-scraping | Высокоскоростной сбор данных через скрытый API |
-| **schemas.js** | Zod | Валидация данных (Gatekeeper pattern) |
-| **storage** | Prisma + SQLite | Персистентное хранение с Upsert и Audit Trail |
+| **miner.js** | PlaywrightCrawler | Bypass WB protection, extract session (cookies + x_wbaas_token) |
+| **parser.js** | got-scraping | High-speed data collection via hidden API |
+| **schemas.js** | Zod | Data validation (Gatekeeper pattern) |
+| **utils/wb-image.js** | Custom | Generate WB image URLs from product IDs |
+| **storage** | Prisma + SQLite | Persistent storage with Upsert and Audit Trail |
 
-## 📋 Требования
+## 📋 Requirements
 
 - Node.js 18+
 - npm
 
-## 🚀 Установка
+## 🚀 Installation
 
-### 1. Установка зависимостей
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Настройка окружения
+### 2. Setup environment
 
 ```bash
-# Скопируйте пример конфигурации
+# Copy environment configuration
 copy .env.example .env
 ```
 
-Отредактируйте `.env` при необходимости:
+Edit `.env` as needed:
 
 ```env
-# База данных (Prisma + SQLite)
+# Database (Prisma + SQLite)
 DATABASE_URL="file:./storage/dev.db"
 
-# Режим браузера в miner.js (true/false)
+# Browser mode in miner.js (true/false)
 HEADLESS=true
 
-# Максимум страниц для парсинга
+# Maximum pages to parse
 MAX_PAGES=5
 
-# Экспорт в JSON (true/false)
+# Export to JSON (true/false)
 OUTPUT_JSON=false
 
-# Уровень логирования: fatal, error, warn, info, debug, trace
+# Retry settings for rate limiting
+MAX_RETRIES=3
+BASE_DELAY=5000
+REQUEST_DELAY=3000
+
+# Log level: fatal, error, warn, info, debug, trace
 LOG_LEVEL=info
 ```
 
-### 3. Инициализация базы данных
+### 3. Initialize database
 
 ```bash
-# Применить схему к SQLite и сгенерировать клиент
+# Apply schema to SQLite and generate client
 npx prisma db push
 npx prisma generate
 ```
 
-## 📖 Использование
+## 📖 Usage
 
-### Этап 1: Добыча сессии (miner.js)
+### Step 1: Extract Session (miner.js)
 
-Запускает браузер в headless-режиме, обходит защиту WB, извлекает куки и токен `x_wbaas_token`.
+Launches browser in headless mode, bypasses WB protection, extracts cookies and `x_wbaas_token`.
 
 ```bash
-# Headless режим (по умолчанию)
-npm run miner:headless
+# Headless mode (default)
+npm run miner
 
-# Видимый браузер (для отладки)
+# Visible browser (for debugging)
 cross-env HEADLESS=false npm run miner
 
-# Напрямую
+# Direct execution
 node miner.js
 ```
 
-**Результат:** Файл `session.json` с User-Agent и cookies.
+**Result:** `session.json` file with User-Agent and cookies.
 
-### Этап 2: Парсинг данных (parser.js)
+### Step 2: Parse Data (parser.js)
 
-Использует сессию для запросов к скрытому API `search.wb.ru`.
+Uses session to make requests to hidden `search.wb.ru` API.
 
 ```bash
-# Парсинг по умолчанию (запрос: "товар", лимит: 100)
+# Default parsing (query: "товар", limit: 100)
 npm run parser
 
-# С экспортом в JSON
+# With JSON export
 npm run parser:json
 
-# Кастомный запрос и лимит
+# Custom query and limit
 node parser.js "кроссовки" 50
 
-# Кастомный запрос с JSON экспортом
+# Custom query with JSON export
 cross-env OUTPUT_JSON=true node parser.js "кроссовки" 50
 ```
 
-**Результат:** Данные сохраняются в SQLite (`storage/dev.db`) и/или экспортируются в JSON.
+**Result:** Data saved to SQLite (`storage/dev.db`) and/or exported to JSON.
 
-## 📁 Структура проекта
+## 📁 Project Structure
 
 ```
 WB/
-├── miner.js              # Добытчик сессии (PlaywrightCrawler)
-├── parser.js             # Боевой парсер (got-scraping + Prisma)
-├── schemas.js            # Zod схемы валидации
+├── miner.js                  # Session extractor (PlaywrightCrawler)
+├── parser.js                 # Main parser (got-scraping + Prisma)
+├── schemas.js                # Zod validation schemas
+├── utils/
+│   └── wb-image.js           # WB image URL generator
 ├── prisma/
-│   ├── schema.prisma     # Схема базы данных
-│   └── migrations/       # Миграции Prisma
+│   └── schema.prisma         # Database schema
 ├── storage/
-│   └── dev.db            # SQLite база данных
-├── session.json          # Сохранённая сессия (генерируется)
-├── .env                  # Конфигурация окружения
-├── .env.example          # Пример конфигурации
-├── prisma.config.ts      # Конфигурация Prisma
-└── package.json
+│   └── dev.db                # SQLite database (gitignored)
+├── .env                      # Environment configuration (gitignored)
+├── .env.example              # Example configuration
+├── session.json              # Saved session (gitignored)
+├── .gitignore
+├── package.json
+└── README.md
 ```
 
-## 🔧 Детали архитектуры
+## 🔧 Architecture Details
 
 ### miner.js
 
-- Использует `PlaywrightCrawler` из Crawlee
-- Управляет `headless` через `process.env.HEADLESS`
-- Извлекает куки через `page.context().cookies()`
-- Ищет токен `x_wbaas_token` в cookies
-- Сохраняет сессию в `session.json`
-- Graceful shutdown через `crawler.teardown()`
+- Uses `PlaywrightCrawler` from Crawlee
+- Controls `headless` via `process.env.HEADLESS`
+- Extracts cookies via `page.context().cookies()`
+- Searches for `x_wbaas_token` in cookies
+- Saves session to `session.json`
+- Graceful shutdown via `crawler.teardown()`
 
 ### parser.js
 
-- Использует `got-scraping` для прямых запросов к API
-- Читает сессию из `session.json`
-- Формирует Cookie header из сохранённых кук
-- Валидирует каждый товар через Zod схему (`safeParse`)
-- Записывает в SQLite через `prisma.product.upsert` (Idempotency)
-- Обрабатывает 429 (retry через Crawlee) и 403 (stop после 3 ошибок)
+- Uses `got-scraping` for direct API requests
+- Reads session from `session.json`
+- Builds Cookie header from saved cookies
+- Validates each product through Zod schema (`safeParse`)
+- Writes to SQLite via `prisma.product.upsert` (Idempotency)
+- Handles 429 (exponential backoff) and 403 (stop after 3 consecutive)
 
 ### schemas.js
 
-- `ProductSchema` — валидация товаров
-- `SessionSchema` — валидация сессии
-- `validateProduct()` — gatekeeper функция
-- `cookiesToHeaderString()` — утилита для Cookie header
+- `ProductSchema` — product validation
+- `SessionSchema` — session validation
+- `validateProduct()` — gatekeeper function
+- `validateSession()` — session gatekeeper
+- `cookiesToHeaderString()` — Cookie header utility
 
-### База данных (Prisma Schema)
+### utils/wb-image.js
+
+- `generateWbImageUrl(id, size)` — generates WB CDN image URLs
+- Supports multiple size variants: `big`, `tm`, `c246x328`, etc.
+- Uses mathematical distribution across CDN baskets
+
+### Database (Prisma Schema)
 
 ```prisma
 model Product {
-  id        Int      @id @unique // Артикул WB
+  id        Int      @id @unique // WB article ID
   name      String
   price     Float?
   salePrice Float?
@@ -179,17 +194,17 @@ model Product {
 }
 ```
 
-## 🛡️ Anti-Bot тактики
+## 🛡️ Anti-Bot Tactics
 
-1. **DevTools First** — используется скрытый API `search.wb.ru`
-2. **Stealth** — Playwright с эмуляцией реального браузера
-3. **Rate Limiting** — обработка 429 через Crawlee retry
-4. **403 Protection** — остановка после 3 consecutive 403 ошибок
-5. **Fingerprinting** — сохранение реального User-Agent и кук
+1. **DevTools First** — uses hidden `search.wb.ru` API
+2. **Stealth** — Playwright with real browser emulation
+3. **Rate Limiting** — exponential backoff on 429
+4. **403 Protection** — stops after 3 consecutive 403 errors
+5. **Fingerprinting** — saves real User-Agent and cookies
 
-## 📊 Валидация данных (Zod Gatekeeper)
+## 📊 Data Validation (Zod Gatekeeper)
 
-Все данные проходят через строгую валидацию перед записью в БД:
+All data passes strict validation before database write:
 
 ```javascript
 const result = ProductSchema.safeParse(product);
@@ -204,7 +219,7 @@ if (result.success) {
 }
 ```
 
-## 📝 Пример данных
+## 📝 Sample Data
 
 ```json
 {
@@ -215,7 +230,7 @@ if (result.success) {
   "brand": "Nike",
   "rating": 4.8,
   "reviews": 1250,
-  "image": "https://basket-01.wbbasket.ru/image/...",
+  "image": "https://basket-01.wbbasket.ru/vol1234/part123456/123456789/images/big/1.webp",
   "sourceUrl": "https://www.wildberries.ru/catalog/123456789/detail.aspx",
   "createdAt": "2026-03-15T10:30:00.000Z",
   "updatedAt": "2026-03-15T10:30:00.000Z"
@@ -224,33 +239,33 @@ if (result.success) {
 
 ## 🔍 Troubleshooting
 
-### miner.js не находит x_wbaas_token
+### miner.js doesn't find x_wbaas_token
 
-- Увеличьте таймаут ожидания
-- Запустите с `HEADLESS=false` для визуальной отладки
-- Проверьте, что WB не требует капчу
+- Increase timeout wait
+- Run with `HEADLESS=false` for visual debugging
+- Check if WB requires captcha
 
-### parser.js получает 403
+### parser.js gets 403
 
-- Запустите `miner.js` заново для свежей сессии
-- Уменьшите `MAX_PAGES`
-- Проверьте IP на наличие блокировок
+- Run `miner.js` again for fresh session
+- Reduce `MAX_PAGES`
+- Check IP for blocks
 
 ### Rate Limit (429)
 
-- Parser автоматически retry через Crawlee
-- Увеличьте задержку между запросами в коде
+- Parser automatically retries with exponential backoff
+- Increase `BASE_DELAY` and `REQUEST_DELAY` in `.env`
 
-### Ошибки Prisma
+### Prisma Errors
 
 ```bash
-# Перегенерировать клиент
+# Regenerate client
 npx prisma generate
 
-# Применить схему к БД
+# Apply schema to database
 npx prisma db push
 ```
 
-## 📄 Лицензия
+## 📄 License
 
 ISC

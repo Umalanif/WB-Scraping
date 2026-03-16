@@ -1,20 +1,22 @@
 /**
- * Генерирует прямую ссылку на изображение товара Wildberries (Актуально: Март 2026).
- * Использует математическое распределение по CDN-серверам (баскетам) на основе vol.
+ * Generates a direct Wildberries product image URL (Updated: March 2026).
+ * Uses mathematical distribution across CDN servers (baskets) based on product ID.
  *
- * @param {number} id - Артикул товара (nmId).
- * @param {string} size - Размер изображения: 'big', 'tm', 'c246x328', 'c516x688', 'tm_retina', 'max'.
- * @returns {string|null} - Полный URL к изображению в формате .webp или null.
+ * @param {number} id - Product article ID (nmId). Must be a positive integer.
+ * @param {'big'|'tm'|'c246x328'|'c516x688'|'tm_retina'|'max'} [size='big'] - Image size variant.
+ * @returns {string|null} Full URL to .webp image, or null if ID is invalid.
  */
 export function generateWbImageUrl(id, size = 'big') {
-    if (!id || typeof id !== 'number' || id <= 0) return null;
+    if (!id || typeof id !== 'number' || id <= 0) {
+        return null;
+    }
 
     const vol = Math.floor(id / 100000);
     const part = Math.floor(id / 1000);
     let basket = '01';
 
-    // Массив границ vol для определения номера корзины (обновлено: Март 2026)
-    // Примечание: диапазоны приблизительные, т.к. WB динамически распределяет товары
+    // Basket ranges based on ID volume (Updated: March 2026)
+    // Note: WB dynamically redistributes products, so ranges are approximate
     if (vol <= 143) basket = '01';
     else if (vol <= 287) basket = '02';
     else if (vol <= 431) basket = '03';
@@ -42,7 +44,7 @@ export function generateWbImageUrl(id, size = 'big') {
     else if (vol <= 5645) basket = '25';
     else basket = '26';
 
-    // Исправлено: все корзины используют .ru домен (корзины 21+ на .net возвращают 404)
+    // All baskets use .ru domain (baskets 21+ on .net return 404)
     const domain = 'wbbasket.ru';
 
     return `https://basket-${basket}.${domain}/vol${vol}/part${part}/${id}/images/${size}/1.webp`;
