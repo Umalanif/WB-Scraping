@@ -20,7 +20,7 @@ model Product {
   brand     String?
   rating    Float?
   reviews   Int?
-  image     String?
+  image     String?  // Сгенерированный URL изображения Wildberries
 
   // Audit Trail (per storage.md requirements)
   sourceUrl String

@@ -27,7 +27,8 @@ export const ProductSchema = z.object({
     brand: z.string().trim().optional(),
     rating: z.number().optional(),
     reviews: z.number().optional(),
-    image: z.string().nullable().optional(),
+    // Разрешаем null — товар без изображения всё равно сохраняется
+    image: z.string().nullable().optional().default(null),
     sourceUrl: z.string().url(), // Audit Trail field (per storage.md)
 });
 

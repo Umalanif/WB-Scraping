@@ -1,12 +1,13 @@
 import { gotScraping } from 'got-scraping';
 import { Dataset } from 'crawlee';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pino from 'pino';
 import { validateProduct, cookiesToHeaderString, SessionSchema } from './schemas.js';
 import { PrismaClient } from './generated/prisma/client.ts';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
+import { generateWbImageUrl } from './utils/wb-image.js';
 import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -87,19 +88,48 @@ function buildSearchUrl(query, page = 1) {
  * @returns {{ success: boolean, data?: Product }}
  */
 function extractProduct(item, sourceUrl) {
-    const priceData = item.price?.total?.sum || item.price?.sale?.sum || item.priceU;
-    const salePriceData = item.price?.sale?.sum || item.salePriceU;
+    // Пропускаем товары без id — невозможно сгенерировать image URL
+    if (!item.id) {
+        return { success: false, error: { errors: [{ path: ['id'], message: 'Product ID is required' }] } };
+    }
+
+    // 1. Попытка достать цену по-старому (на случай, если WB вернет старый формат)
+    let priceData = item.price?.total?.sum || item.price?.sale?.sum || item.priceU;
+    let salePriceData = item.price?.sale?.sum || item.salePriceU;
+
+    // 2. Достаем цену по-новому (из массива sizes)
+    if (!priceData && item.sizes && item.sizes.length > 0) {
+        const sizeWithPrice = item.sizes.find(s => s.price);
+        if (sizeWithPrice) {
+            priceData = sizeWithPrice.price.basic; // Базовая цена (перечеркнутая)
+            salePriceData = sizeWithPrice.price.total || sizeWithPrice.price.product; // Цена со скидкой
+        }
+    }
+
+    // Генерация URL изображения на основе артикула
+    // Приводим id к числу, т.к. WB может возвращать его как строку
+    const numericId = typeof item.id === 'string' ? Number(item.id) : item.id;
+    const imageUrl = generateWbImageUrl(numericId);
+
+    // Формируем прямую ссылку на товар WB для открытия в браузере
+    const productUrl = `https://www.wildberries.ru/catalog/${numericId}/detail.aspx`;
+
+    // Формируем name с fallback на "Товар #{id}", если название пустое
+    const rawName = (item.name || item.title || '').trim();
+    const name = rawName || `Товар #${numericId}`;
 
     const product = {
-        id: item.id,
-        name: item.name || item.title || '',
+        id: numericId,
+        name,
         price: priceData ? Number(priceData) / 100 : undefined,
         salePrice: salePriceData ? Number(salePriceData) / 100 : undefined,
-        brand: item.brand?.name || item.brand || undefined,
+        // Обрабатываем brand как строку или объект
+        brand: typeof item.brand === 'string' ? item.brand.trim() : (item.brand?.name || undefined),
         rating: item.reviewRating || item.rating || item.nmReviewRating,
         reviews: item.feedbacks || item.nmFeedbacks || 0,
-        image: item.image?.url || item.imageU || null,
-        sourceUrl,
+        // Разрешаем null для image — товар без изображения всё равно ценен
+        image: imageUrl,
+        sourceUrl: productUrl,
     };
 
     return validateProduct(product);
@@ -132,87 +162,137 @@ async function main() {
         let page = 1;
         let consecutive403s = 0;
         const MAX_CONSECUTIVE_403 = 3;
+        const MAX_RETRIES = parseInt(process.env.MAX_RETRIES) || 3;
+        const BASE_DELAY = parseInt(process.env.BASE_DELAY) || 5000;
+        const REQUEST_DELAY = parseInt(process.env.REQUEST_DELAY) || 3000;
 
         while (allProducts.length < limit && page <= maxPages) {
             const url = buildSearchUrl(query, page);
             logger.info({ page, url }, 'Fetching page');
 
-            try {
-                const response = await gotScraping.get(url, {
-                    headers: {
-                        cookie: cookieHeader,
-                        'user-agent': session.userAgent,
-                        'accept': 'application/json, text/plain, */*',
-                        'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-                    },
-                    headerGeneratorOptions: {
-                        browsers: [{ name: 'chrome' }],
-                    },
-                    timeout: {
-                        request: 15000,
-                    },
-                    http2: true,
-                    retry: {
-                        limit: 2,
-                    },
-                });
+            let retries = 0;
+            let success = false;
 
-                consecutive403s = 0;
+            while (!success && retries < MAX_RETRIES) {
+                try {
+                    const response = await gotScraping.get(url, {
+                        headers: {
+                            cookie: cookieHeader,
+                            'user-agent': session.userAgent,
+                            'accept': 'application/json, text/plain, */*',
+                            'accept-language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                            'referer': 'https://www.wildberries.ru/',
+                            'origin': 'https://www.wildberries.ru',
+                        },
+                        headerGeneratorOptions: {
+                            browsers: [{ name: 'chrome' }],
+                        },
+                        timeout: {
+                            request: 15000,
+                        },
+                        http2: true,
+                        retry: {
+                            limit: 2,
+                        },
+                    });
 
-                const data = JSON.parse(response.body);
-                const items = data?.products || data?.data?.products || data?.data?.items || [];
+                    consecutive403s = 0;
 
-                if (items.length === 0) {
-                    logger.info({ page }, 'No more products found');
-                    break;
-                }
-
-                logger.info({ page, itemsFound: items.length }, 'Processing items');
-
-                for (const item of items) {
-                    const result = extractProduct(item, url);
-
-                    if (result.success) {
-                        allProducts.push(result.data);
-                        logger.debug({ id: result.data.id, name: result.data.name }, 'Validated product');
-                    } else {
-                        logger.warn(
-                            { id: item.id, errors: result.error.errors },
-                            'Product validation failed'
-                        );
-                    }
-
-                    if (allProducts.length >= limit) {
-                        break;
-                    }
-                }
-
-                logger.info({ page, totalProducts: allProducts.length }, 'Page complete');
-                page++;
-
-                await new Promise((resolve) => setTimeout(resolve, 500));
-            } catch (error) {
-                if (error.response?.statusCode === 429) {
-                    logger.error('Rate limited (429). Throwing for Crawlee retry mechanism.');
-                    throw new Error('Rate Limited');
-                }
-
-                if (error.response?.statusCode === 403) {
-                    consecutive403s++;
-                    logger.warn({ consecutive403s }, 'Received 403 Forbidden');
-
-                    if (consecutive403s >= MAX_CONSECUTIVE_403) {
+                    // Check if response is HTML instead of JSON
+                    const contentType = response.headers['content-type'] || '';
+                    if (contentType.includes('text/html') || response.body.trim().startsWith('<!DOCTYPE')) {
                         logger.error(
-                            { consecutive403s },
-                            'Too many consecutive 403 errors. Stopping to prevent IP ban.'
+                            { page, contentType, statusCode: response.statusCode, retry: retries + 1 },
+                            'Received HTML instead of JSON. Possible CAPTCHA or block.'
                         );
+                        // Save HTML for debugging on first attempt
+                        if (retries === 0) {
+                            const debugFile = join(__dirname, `debug-page-${page}.html`);
+                            await writeFile(debugFile, response.body, 'utf-8');
+                            logger.warn({ file: debugFile }, 'HTML response saved for debugging');
+                        }
+                        throw new Error('HTML response received instead of JSON');
+                    }
+
+                    const data = JSON.parse(response.body);
+                    const items = data?.products || data?.data?.products || data?.data?.items || [];
+
+                    if (items.length === 0) {
+                        logger.info({ page }, 'No more products found');
+                        success = true;
                         break;
                     }
-                    continue;
-                }
 
-                logger.error({ error: error.message, page }, 'Request failed');
-                page++;
+                    logger.info({ page, itemsFound: items.length }, 'Processing items');
+
+                    let skippedCount = 0;
+                    for (const item of items) {
+                        const result = extractProduct(item, url);
+
+                        if (result.success) {
+                            allProducts.push(result.data);
+                            logger.debug({ id: result.data.id, name: result.data.name }, 'Validated product');
+                        } else {
+                            skippedCount++;
+                            logger.debug(
+                                { id: item.id, errors: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`) },
+                                'Product validation failed'
+                            );
+                        }
+
+                        if (allProducts.length >= limit) {
+                            break;
+                        }
+                    }
+
+                    if (skippedCount > 0) {
+                        logger.warn({ page, skipped: skippedCount, accepted: items.length - skippedCount }, 'Some products skipped');
+                    }
+
+                    logger.info({ page, totalProducts: allProducts.length }, 'Page complete');
+                    success = true;
+                    page++;
+                    // Delay before next page
+                    await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY));
+                } catch (error) {
+                    retries++;
+
+                    if (error.response?.statusCode === 429 || error.message === 'HTML response received instead of JSON') {
+                        const delay = BASE_DELAY * Math.pow(2, retries - 1);
+                        logger.warn(
+                            { page, retry: retries, maxRetries: MAX_RETRIES, delay, error: error.message },
+                            'Rate limited or CAPTCHA. Retrying with exponential backoff...'
+                        );
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    if (error.response?.statusCode === 403) {
+                        consecutive403s++;
+                        logger.warn({ page, consecutive403s }, 'Received 403 Forbidden');
+
+                        if (consecutive403s >= MAX_CONSECUTIVE_403) {
+                            logger.error(
+                                { consecutive403s },
+                                'Too many consecutive 403 errors. Stopping to prevent IP ban.'
+                            );
+                            return;
+                        }
+                        const delay = BASE_DELAY * retries;
+                        logger.warn({ page, retry: retries, delay }, 'Retrying after 403...');
+                        await new Promise((resolve) => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    logger.error({ error: error.message, page }, 'Request failed');
+                    const delay = BASE_DELAY * retries;
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+                }
+            }
+
+            if (!success) {
+                logger.error({ page, retries }, 'Failed to fetch page after all retries');
+                break;
             }
         }
 
