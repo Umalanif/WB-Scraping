@@ -3,11 +3,13 @@ import { writeFile, readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pino from 'pino';
-import { validateSession } from './schemas.js';
+import { parentPort } from 'worker_threads';
+import { validateSession } from '../schemas.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Create logger with job tag for log traceability
 const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
     transport: {
@@ -17,13 +19,13 @@ const logger = pino({
             translateTime: 'SYS:standard',
         },
     },
-});
+}).child({ job: 'miner' });
 
-const SESSION_FILE = join(__dirname, 'session.json');
+const SESSION_FILE = join(__dirname, '..', 'session.json');
 const WB_URL = 'https://www.wildberries.ru/';
 
 /**
- * @typedef {import('./schemas.js').SessionData} SessionData
+ * @typedef {import('../schemas.js').SessionData} SessionData
  */
 
 /**
@@ -69,12 +71,27 @@ async function main() {
     const existingSession = await loadSession();
     if (existingSession && await hasValidSession(existingSession)) {
         logger.info('Valid session with x_wbaas_token already exists. Skipping mining.');
-        return;
+        parentPort.postMessage('done');
+        process.exit(0);
     }
 
     logger.warn('No valid session found. Starting session mining...');
 
-    const crawler = new PlaywrightCrawler({
+    let crawler = null;
+
+    // Graceful shutdown handler
+    parentPort.on('message', async (message) => {
+        if (message === 'cancel') {
+            logger.warn('Received cancel signal. Shutting down...');
+            if (crawler) {
+                await crawler.teardown();
+            }
+            parentPort.postMessage('done');
+            process.exit(0);
+        }
+    });
+
+    crawler = new PlaywrightCrawler({
         headless,
         launchContext: {
             launchOptions: {
@@ -113,7 +130,8 @@ async function main() {
 
                         logger.info('Session mining complete. Shutting down crawler...');
                         await crawler.teardown();
-                        return;
+                        parentPort.postMessage('done');
+                        process.exit(0);
                     } else {
                         log.error({ errors: validated.error.errors }, 'Session validation failed');
                     }
@@ -142,17 +160,22 @@ async function main() {
         const finalSession = await loadSession();
         if (!finalSession || !finalSession.cookies.some((c) => c.name === 'x_wbaas_token')) {
             logger.error('Failed to extract x_wbaas_token after all attempts');
+            parentPort.postMessage('done');
             process.exit(1);
         }
 
         logger.info('Miner completed successfully');
+        parentPort.postMessage('done');
+        process.exit(0);
     } catch (error) {
         logger.error({ error: error.message }, 'Miner crashed');
+        parentPort.postMessage('done');
         process.exit(1);
     }
 }
 
 main().catch((error) => {
     logger.fatal({ error: error.message, stack: error.stack }, 'Unhandled exception');
+    parentPort.postMessage('done');
     process.exit(1);
 });

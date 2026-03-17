@@ -1,18 +1,19 @@
 import { gotScraping } from 'got-scraping';
-import { Dataset } from 'crawlee';
 import { readFile, writeFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pino from 'pino';
-import { validateProduct, cookiesToHeaderString, SessionSchema } from './schemas.js';
-import { PrismaClient } from './generated/prisma/client.ts';
+import { parentPort } from 'worker_threads';
+import { validateProduct, cookiesToHeaderString, SessionSchema } from '../schemas.js';
+import { PrismaClient } from '../generated/prisma/client.ts';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
-import { generateWbImageUrl } from './utils/wb-image.js';
+import { generateWbImageUrl } from '../utils/wb-image.js';
 import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Create logger with job tag for log traceability
 const logger = pino({
     level: process.env.LOG_LEVEL || 'info',
     transport: {
@@ -22,7 +23,7 @@ const logger = pino({
             translateTime: 'SYS:standard',
         },
     },
-});
+}).child({ job: 'parser' });
 
 // Initialize Prisma with LibSQL adapter
 const libsql = new PrismaLibSql({
@@ -32,11 +33,11 @@ const prisma = new PrismaClient({
     adapter: libsql,
 });
 
-const SESSION_FILE = join(__dirname, 'session.json');
+const SESSION_FILE = join(__dirname, '..', 'session.json');
 
 /**
- * @typedef {import('./schemas.js').Product} Product
- * @typedef {import('./schemas.js').SessionData} SessionData
+ * @typedef {import('../schemas.js').Product} Product
+ * @typedef {import('../schemas.js').SessionData} SessionData
  */
 
 /**
@@ -136,6 +137,19 @@ function extractProduct(item, sourceUrl) {
 }
 
 async function main() {
+    let cancelled = false;
+
+    // Graceful shutdown handler
+    parentPort.on('message', async (message) => {
+        if (message === 'cancel') {
+            logger.warn('Received cancel signal. Shutting down...');
+            cancelled = true;
+            await prisma.$disconnect();
+            parentPort.postMessage('done');
+            process.exit(0);
+        }
+    });
+
     try {
         const query = process.argv[2] || 'товар';
         const limit = parseInt(process.argv[3]) || 100;
@@ -146,12 +160,14 @@ async function main() {
         const session = await loadSession();
         if (!session) {
             logger.error('No valid session found. Run miner.js first.');
+            parentPort.postMessage('done');
             process.exit(1);
         }
 
         const hasToken = session.cookies.some((c) => c.name === 'x_wbaas_token');
         if (!hasToken) {
             logger.error('Session missing x_wbaas_token. Run miner.js again.');
+            parentPort.postMessage('done');
             process.exit(1);
         }
 
@@ -166,14 +182,14 @@ async function main() {
         const BASE_DELAY = parseInt(process.env.BASE_DELAY) || 5000;
         const REQUEST_DELAY = parseInt(process.env.REQUEST_DELAY) || 3000;
 
-        while (allProducts.length < limit && page <= maxPages) {
+        while (allProducts.length < limit && page <= maxPages && !cancelled) {
             const url = buildSearchUrl(query, page);
             logger.info({ page, url }, 'Fetching page');
 
             let retries = 0;
             let success = false;
 
-            while (!success && retries < MAX_RETRIES) {
+            while (!success && retries < MAX_RETRIES && !cancelled) {
                 try {
                     const response = await gotScraping.get(url, {
                         headers: {
@@ -196,6 +212,7 @@ async function main() {
                         },
                     });
 
+                    logger.info({ page, statusCode: response.statusCode }, 'Received response from WB API');
                     consecutive403s = 0;
 
                     // Check if response is HTML instead of JSON
@@ -227,6 +244,8 @@ async function main() {
 
                     let skippedCount = 0;
                     for (const item of items) {
+                        if (cancelled) break;
+
                         const result = extractProduct(item, url);
 
                         if (result.success) {
@@ -259,9 +278,9 @@ async function main() {
 
                     if (error.response?.statusCode === 429 || error.message === 'HTML response received instead of JSON') {
                         const delay = BASE_DELAY * Math.pow(2, retries - 1);
-                        logger.warn(
-                            { page, retry: retries, maxRetries: MAX_RETRIES, delay, error: error.message },
-                            'Rate limited or CAPTCHA. Retrying with exponential backoff...'
+                        logger.error(
+                            { page, statusCode: error.response?.statusCode, retry: retries, maxRetries: MAX_RETRIES, delay, error: error.message },
+                            'Rate limited (429) or CAPTCHA detected. Retrying with exponential backoff...'
                         );
                         await new Promise((resolve) => setTimeout(resolve, delay));
                         continue;
@@ -269,14 +288,19 @@ async function main() {
 
                     if (error.response?.statusCode === 403) {
                         consecutive403s++;
-                        logger.warn({ page, consecutive403s }, 'Received 403 Forbidden');
+                        logger.error(
+                            { page, statusCode: error.response.statusCode, consecutive403s, maxConsecutive: MAX_CONSECUTIVE_403 },
+                            'Received 403 Forbidden - possible IP ban or CAPTCHA'
+                        );
 
                         if (consecutive403s >= MAX_CONSECUTIVE_403) {
                             logger.error(
                                 { consecutive403s },
                                 'Too many consecutive 403 errors. Stopping to prevent IP ban.'
                             );
-                            return;
+                            await prisma.$disconnect();
+                            parentPort.postMessage('done');
+                            process.exit(0);
                         }
                         const delay = BASE_DELAY * retries;
                         logger.warn({ page, retry: retries, delay }, 'Retrying after 403...');
@@ -301,7 +325,17 @@ async function main() {
 
         // Save each product to database using upsert (idempotency pattern per storage.md)
         let savedCount = 0;
+        let updatedCount = 0;
+        let createdCount = 0;
+        
         for (const product of result) {
+            if (cancelled) break;
+
+            const existingProduct = await prisma.product.findUnique({
+                where: { id: product.id },
+                select: { id: true },
+            });
+
             await prisma.product.upsert({
                 where: { id: product.id },
                 update: {
@@ -326,9 +360,19 @@ async function main() {
                     sourceUrl: product.sourceUrl,
                 },
             });
+            
             savedCount++;
+            if (existingProduct) {
+                updatedCount++;
+            } else {
+                createdCount++;
+            }
         }
-        logger.info({ savedCount }, 'Products saved to database via upsert');
+        
+        logger.info(
+            { saved: savedCount, created: createdCount, updated: updatedCount, total: result.length },
+            'Products saved to database via upsert'
+        );
 
         if (process.env.OUTPUT_JSON === 'true') {
             const outputFile = join(__dirname, `products-${query.replace(/\s+/g, '-')}.json`);
@@ -339,9 +383,14 @@ async function main() {
         await prisma.$disconnect();
         logger.info('Prisma disconnected');
     }
+
+    parentPort.postMessage('done');
+    process.exit(0);
 }
 
 main().catch((error) => {
     logger.fatal({ error: error.message, stack: error.stack }, 'Parser crashed');
+    prisma.$disconnect().catch(() => {});
+    parentPort.postMessage('done');
     process.exit(1);
 });
