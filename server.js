@@ -2,7 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pino from 'pino';
-import { spawn } from 'child_process';
+import { spawn, exec } from 'child_process';
 import 'dotenv/config';
 import { PrismaClient } from './generated/prisma/client.ts';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
@@ -275,26 +275,6 @@ function generateFilenameTimestamp() {
     return `${year}${month}${day}_${hours}${minutes}${seconds}`;
 }
 
-// GET /api/products/recent - Get last 20 products sorted by updatedAt DESC
-app.get('/api/products/recent', async (req, res) => {
-    try {
-        const products = await prisma.product.findMany({
-            take: 20,
-            orderBy: {
-                updatedAt: 'desc',
-            },
-        });
-        logger.debug({ count: products.length, timestamp: new Date().toISOString() }, 'Products fetched from /api/products/recent');
-        if (products.length > 0) {
-            logger.debug({ firstProduct: { id: products[0].id, updatedAt: products[0].updatedAt } }, 'Most recent product');
-        }
-        res.json(products);
-    } catch (error) {
-        logger.error({ error: error.message }, 'Database error in /api/products/recent');
-        res.status(500).json({ error: 'Database error', message: error.message });
-    }
-});
-
 // GET /api/export/excel - Export products to Excel file
 app.get('/api/export/excel', async (req, res) => {
     try {
@@ -399,6 +379,23 @@ app.get('/api/export/excel', async (req, res) => {
         logger.error({ error: error.message, stack: error.stack }, 'Excel export failed');
         res.status(500).json({ error: 'Export failed', message: error.message });
     }
+});
+
+// POST /api/prisma/studio - Launch Prisma Studio
+app.post('/api/prisma/studio', (req, res) => {
+    logger.info('Launching Prisma Studio...');
+
+    const databaseUrl = process.env.DATABASE_URL || 'file:database.db';
+    
+    exec(`npx prisma studio --url "${databaseUrl}"`, (error, stdout, stderr) => {
+        if (error) {
+            logger.error({ error: error.message }, 'Failed to launch Prisma Studio');
+            return res.status(500).json({ error: 'Failed to launch Prisma Studio', message: error.message });
+        }
+
+        logger.info('Prisma Studio launched successfully');
+        res.json({ message: 'Prisma Studio launched', url: 'http://localhost:5555' });
+    });
 });
 
 // 404 handler
