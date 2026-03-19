@@ -1,0 +1,576 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "WB Parser API",
+    "description": "REST API for managing the Wildberries scraper. Supports launching background jobs (miner, parser), exporting data to Excel, and monitoring application logs.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Documentation"
+    },
+    "license": {
+      "name": "ISC"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Verifies that the REST API server is running.",
+        "operationId": "healthCheck",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Server is operational",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "timestamp": "2024-03-19T12:00:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "summary": "Process Status",
+        "description": "Returns the current state of background processes: miner or parser.",
+        "operationId": "getStatus",
+        "tags": ["Processes"],
+        "responses": {
+          "200": {
+            "description": "Current process status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessStatus"
+                },
+                "example": {
+                  "status": "running",
+                  "job": "parser",
+                  "pid": 12347,
+                  "startTime": "2024-03-19T12:00:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/miner/start": {
+      "post": {
+        "summary": "Start Miner",
+        "description": "Launches miner.js — extracts Wildberries session (cookies, userAgent) using Crawlee/Playwright headless browser.",
+        "operationId": "startMiner",
+        "tags": ["Processes"],
+        "requestBody": {
+          "description": "Request body (not used — miner harvests session automatically)",
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "Miner accepts no parameters — session is harvested automatically.",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Miner started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MinerResponse"
+                },
+                "example": {
+                  "message": "Miner started",
+                  "pid": 12345,
+                  "startTime": "2024-03-19T12:00:00.000Z"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict — another process is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/parser/start": {
+      "post": {
+        "summary": "Start Parser",
+        "description": "Launches parser.js — scrapes products from WB Search API v4 using the session from session.json.",
+        "operationId": "startParser",
+        "tags": ["Processes"],
+        "requestBody": {
+          "description": "Parsing parameters",
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParserRequest"
+              },
+              "example": {
+                "query": "iphone 15",
+                "limit": 100
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parser started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParserResponse"
+                },
+                "example": {
+                  "message": "Parser started",
+                  "pid": 12347,
+                  "startTime": "2024-03-19T12:00:00.000Z",
+                  "params": {
+                    "query": "iphone 15",
+                    "limit": 100
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict — another process is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConflictError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/export/excel": {
+      "get": {
+        "summary": "Export to Excel",
+        "description": "Exports all products from the database to a formatted .xlsx file. The file includes colored headers, autofilter, alternating row colors, and timestamps in Moscow timezone.",
+        "operationId": "exportExcel",
+        "tags": ["Export"],
+        "responses": {
+          "200": {
+            "description": "Excel file download",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "Binary XLSX file data"
+                },
+                "example": "(binary file download)"
+              }
+            },
+            "headers": {
+              "Content-Disposition": {
+                "description": "inline; filename=\"wildberries_report_YYYYMMDD_HHMMSS.xlsx\"",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "description": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No data to export",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportError"
+                },
+                "example": {
+                  "error": "No data to export"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Export failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "summary": "Application Logs",
+        "description": "Returns the last 100 lines from logs/app.log.",
+        "operationId": "getLogs",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Log lines list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogResponse"
+                },
+                "example": {
+                  "lines": [
+                    "2024-03-19T12:00:00.000Z INFO: Server started on http://localhost:3000",
+                    "2024-03-19T12:01:00.000Z INFO: Miner output: Session saved to file"
+                  ],
+                  "error": null
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to read log file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prisma/studio": {
+      "post": {
+        "summary": "Launch Prisma Studio",
+        "description": "Launches the visual database editor Prisma Studio on port 5555.",
+        "operationId": "launchPrismaStudio",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "Prisma Studio launched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioResponse"
+                },
+                "example": {
+                  "message": "Prisma Studio launched",
+                  "url": "http://localhost:5555"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Failed to launch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-03-19T12:00:00.000Z"
+          }
+        }
+      },
+      "ProcessStatus": {
+        "type": "object",
+        "description": "Current state of the background process",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["idle", "running"],
+            "description": "idle — free, running — executing",
+            "example": "running"
+          },
+          "job": {
+            "type": ["string", "null"],
+            "enum": ["miner", "parser", null],
+            "description": "Name of the executing job",
+            "example": "parser"
+          },
+          "pid": {
+            "type": ["integer", "null"],
+            "description": "Process ID of the running process",
+            "example": 12347
+          },
+          "startTime": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "ISO timestamp when the process started",
+            "example": "2024-03-19T12:00:00.000Z"
+          }
+        }
+      },
+      "MinerResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Miner started"
+          },
+          "pid": {
+            "type": "integer",
+            "example": 12345
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-03-19T12:00:00.000Z"
+          }
+        }
+      },
+      "ParserRequest": {
+        "type": "object",
+        "description": "Parameters for launching the WB parser",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Wildberries search query",
+            "default": "товар",
+            "example": "iphone 15"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of products to collect",
+            "default": 100,
+            "minimum": 1,
+            "maximum": 10000,
+            "example": 100
+          }
+        }
+      },
+      "ParserResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Parser started"
+          },
+          "pid": {
+            "type": "integer",
+            "example": 12347
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2024-03-19T12:00:00.000Z"
+          },
+          "params": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "example": "iphone 15"
+              },
+              "limit": {
+                "type": "integer",
+                "example": 100
+              }
+            }
+          }
+        }
+      },
+      "ConflictError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Conflict"
+          },
+          "message": {
+            "type": "string",
+            "example": "Another process (parser) is already running"
+          },
+          "currentStatus": {
+            "$ref": "#/components/schemas/ProcessStatus"
+          }
+        }
+      },
+      "LogResponse": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Array of log lines (up to 100 most recent)",
+            "example": [
+              "2024-03-19T12:00:00.000Z INFO: Server started on http://localhost:3000"
+            ]
+          },
+          "error": {
+            "type": ["string", "null"],
+            "description": "Error message or null",
+            "example": null
+          }
+        }
+      },
+      "ExportError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "No data to export"
+          },
+          "message": {
+            "type": "string",
+            "example": "Export failed"
+          }
+        }
+      },
+      "StudioResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Prisma Studio launched"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "example": "http://localhost:5555"
+          }
+        }
+      },
+      "StudioError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Failed to launch Prisma Studio"
+          },
+          "message": {
+            "type": "string",
+            "example": "Command failed: npx prisma studio"
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "description": "Wildberries product model stored in the database",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Unique Wildberries article ID (PK)",
+            "example": 12345678
+          },
+          "name": {
+            "type": "string",
+            "description": "Product name",
+            "example": "Apple iPhone 15 128GB Black Smartphone"
+          },
+          "price": {
+            "type": ["number", "null"],
+            "description": "Base price in rubles",
+            "example": 79990.00
+          },
+          "salePrice": {
+            "type": ["number", "null"],
+            "description": "Discounted price in rubles",
+            "example": 64990.00
+          },
+          "brand": {
+            "type": ["string", "null"],
+            "description": "Brand name",
+            "example": "Apple"
+          },
+          "rating": {
+            "type": ["number", "null"],
+            "description": "Product rating from 0 to 5",
+            "minimum": 0,
+            "maximum": 5,
+            "example": 4.8
+          },
+          "reviews": {
+            "type": ["integer", "null"],
+            "description": "Number of reviews",
+            "example": 1542
+          },
+          "image": {
+            "type": ["string", "null"],
+            "description": "Wildberries CDN image URL",
+            "example": "https://images.wbstatic.net/c516x688/new/..."
+          },
+          "sourceUrl": {
+            "type": "string",
+            "description": "Direct link to the product page on Wildberries",
+            "example": "https://www.wildberries.ru/catalog/12345678/detail.aspx"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Record creation timestamp (UTC)",
+            "example": "2024-03-19T09:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Last record update timestamp (UTC)",
+            "example": "2024-03-19T12:00:00.000Z"
+          }
+        }
+      }
+    },
+    "tags": [
+      {
+        "name": "System",
+        "description": "System endpoints (health, logs, studio)"
+      },
+      {
+        "name": "Processes",
+        "description": "Background process management (miner, parser)"
+      },
+      {
+        "name": "Export",
+        "description": "Data export endpoints"
+      }
+    ]
+  }
+}
