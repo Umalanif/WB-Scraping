@@ -25,5 +25,5 @@ model Product {
   // Audit Trail (per storage.md requirements)
   sourceUrl String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 }

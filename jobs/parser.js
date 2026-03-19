@@ -4,6 +4,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import pino from 'pino';
 import { parentPort } from 'worker_threads';
+
+// Detect if running as worker thread or child process
+const isWorker = parentPort !== null && parentPort !== undefined;
+
 import { validateProduct, cookiesToHeaderString, SessionSchema } from '../schemas.js';
 import { PrismaClient } from '../generated/prisma/client.ts';
 import { PrismaLibSql } from '@prisma/adapter-libsql';
@@ -139,16 +143,18 @@ function extractProduct(item, sourceUrl) {
 async function main() {
     let cancelled = false;
 
-    // Graceful shutdown handler
-    parentPort.on('message', async (message) => {
-        if (message === 'cancel') {
-            logger.warn('Received cancel signal. Shutting down...');
-            cancelled = true;
-            await prisma.$disconnect();
-            parentPort.postMessage('done');
-            process.exit(0);
-        }
-    });
+    // Graceful shutdown handler (only if running as worker thread)
+    if (isWorker) {
+        parentPort.on('message', async (message) => {
+            if (message === 'cancel') {
+                logger.warn('Received cancel signal. Shutting down...');
+                cancelled = true;
+                await prisma.$disconnect();
+                parentPort.postMessage('done');
+                process.exit(0);
+            }
+        });
+    }
 
     try {
         const query = process.argv[2] || 'товар';
@@ -160,14 +166,14 @@ async function main() {
         const session = await loadSession();
         if (!session) {
             logger.error('No valid session found. Run miner.js first.');
-            parentPort.postMessage('done');
+            if (isWorker) parentPort.postMessage('done');
             process.exit(1);
         }
 
         const hasToken = session.cookies.some((c) => c.name === 'x_wbaas_token');
         if (!hasToken) {
             logger.error('Session missing x_wbaas_token. Run miner.js again.');
-            parentPort.postMessage('done');
+            if (isWorker) parentPort.postMessage('done');
             process.exit(1);
         }
 
@@ -299,7 +305,7 @@ async function main() {
                                 'Too many consecutive 403 errors. Stopping to prevent IP ban.'
                             );
                             await prisma.$disconnect();
-                            parentPort.postMessage('done');
+                            if (isWorker) parentPort.postMessage('done');
                             process.exit(0);
                         }
                         const delay = BASE_DELAY * retries;
@@ -323,55 +329,66 @@ async function main() {
         const result = allProducts.slice(0, limit);
         logger.info({ totalProducts: result.length }, 'Parsing complete');
 
-        // Save each product to database using upsert (idempotency pattern per storage.md)
+        // Save all products to database using a transaction for atomicity
         let savedCount = 0;
         let updatedCount = 0;
         let createdCount = 0;
+
+        logger.info('Starting database transaction...');
         
-        for (const product of result) {
-            if (cancelled) break;
+        await prisma.$transaction(async (tx) => {
+            for (const product of result) {
+                if (cancelled) break;
 
-            const existingProduct = await prisma.product.findUnique({
-                where: { id: product.id },
-                select: { id: true },
-            });
+                const existingProduct = await tx.product.findUnique({
+                    where: { id: product.id },
+                    select: { id: true, updatedAt: true },
+                });
 
-            await prisma.product.upsert({
-                where: { id: product.id },
-                update: {
-                    name: product.name,
-                    price: product.price,
-                    salePrice: product.salePrice,
-                    brand: product.brand,
-                    rating: product.rating,
-                    reviews: product.reviews,
-                    image: product.image,
-                    sourceUrl: product.sourceUrl,
-                },
-                create: {
-                    id: product.id,
-                    name: product.name,
-                    price: product.price,
-                    salePrice: product.salePrice,
-                    brand: product.brand,
-                    rating: product.rating,
-                    reviews: product.reviews,
-                    image: product.image,
-                    sourceUrl: product.sourceUrl,
-                },
-            });
-            
-            savedCount++;
-            if (existingProduct) {
-                updatedCount++;
-            } else {
-                createdCount++;
+                // Explicitly set updatedAt to ensure it changes for browser refresh detection
+                const now = new Date();
+
+                await tx.product.upsert({
+                    where: { id: product.id },
+                    update: {
+                        name: product.name,
+                        price: product.price,
+                        salePrice: product.salePrice,
+                        brand: product.brand,
+                        rating: product.rating,
+                        reviews: product.reviews,
+                        image: product.image,
+                        sourceUrl: product.sourceUrl,
+                        updatedAt: now, // Explicitly update timestamp
+                    },
+                    create: {
+                        id: product.id,
+                        name: product.name,
+                        price: product.price,
+                        salePrice: product.salePrice,
+                        brand: product.brand,
+                        rating: product.rating,
+                        reviews: product.reviews,
+                        image: product.image,
+                        sourceUrl: product.sourceUrl,
+                        updatedAt: now,
+                    },
+                });
+
+                savedCount++;
+                if (existingProduct) {
+                    updatedCount++;
+                    logger.debug({ id: product.id, oldUpdatedAt: existingProduct.updatedAt, newUpdatedAt: now }, 'Product updated');
+                } else {
+                    createdCount++;
+                    logger.debug({ id: product.id, createdAt: now }, 'Product created');
+                }
             }
-        }
-        
+        });
+
         logger.info(
             { saved: savedCount, created: createdCount, updated: updatedCount, total: result.length },
-            'Products saved to database via upsert'
+            'Products saved to database via transaction'
         );
 
         if (process.env.OUTPUT_JSON === 'true') {
@@ -384,13 +401,13 @@ async function main() {
         logger.info('Prisma disconnected');
     }
 
-    parentPort.postMessage('done');
+    if (isWorker) parentPort.postMessage('done');
     process.exit(0);
 }
 
 main().catch((error) => {
     logger.fatal({ error: error.message, stack: error.stack }, 'Parser crashed');
     prisma.$disconnect().catch(() => {});
-    parentPort.postMessage('done');
+    if (isWorker) parentPort.postMessage('done');
     process.exit(1);
 });

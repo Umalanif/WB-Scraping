@@ -6,6 +6,9 @@ import pino from 'pino';
 import { parentPort } from 'worker_threads';
 import { validateSession } from '../schemas.js';
 
+// Check if running as a worker thread or standalone process
+const isWorker = parentPort !== null && parentPort !== undefined;
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -71,7 +74,9 @@ async function main() {
     const existingSession = await loadSession();
     if (existingSession && await hasValidSession(existingSession)) {
         logger.info('Valid session with x_wbaas_token already exists. Skipping mining.');
-        parentPort.postMessage('done');
+        if (isWorker) {
+            parentPort.postMessage('done');
+        }
         process.exit(0);
     }
 
@@ -79,17 +84,19 @@ async function main() {
 
     let crawler = null;
 
-    // Graceful shutdown handler
-    parentPort.on('message', async (message) => {
-        if (message === 'cancel') {
-            logger.warn('Received cancel signal. Shutting down...');
-            if (crawler) {
-                await crawler.teardown();
+    // Graceful shutdown handler (only works when running as worker thread)
+    if (isWorker) {
+        parentPort.on('message', async (message) => {
+            if (message === 'cancel') {
+                logger.warn('Received cancel signal. Shutting down...');
+                if (crawler) {
+                    await crawler.teardown();
+                }
+                parentPort.postMessage('done');
+                process.exit(0);
             }
-            parentPort.postMessage('done');
-            process.exit(0);
-        }
-    });
+        });
+    }
 
     crawler = new PlaywrightCrawler({
         headless,
@@ -130,7 +137,9 @@ async function main() {
 
                         logger.info('Session mining complete. Shutting down crawler...');
                         await crawler.teardown();
-                        parentPort.postMessage('done');
+                        if (isWorker) {
+                            parentPort.postMessage('done');
+                        }
                         process.exit(0);
                     } else {
                         log.error({ errors: validated.error.errors }, 'Session validation failed');
@@ -160,22 +169,30 @@ async function main() {
         const finalSession = await loadSession();
         if (!finalSession || !finalSession.cookies.some((c) => c.name === 'x_wbaas_token')) {
             logger.error('Failed to extract x_wbaas_token after all attempts');
-            parentPort.postMessage('done');
+            if (isWorker) {
+                parentPort.postMessage('done');
+            }
             process.exit(1);
         }
 
         logger.info('Miner completed successfully');
-        parentPort.postMessage('done');
+        if (isWorker) {
+            parentPort.postMessage('done');
+        }
         process.exit(0);
     } catch (error) {
         logger.error({ error: error.message }, 'Miner crashed');
-        parentPort.postMessage('done');
+        if (isWorker) {
+            parentPort.postMessage('done');
+        }
         process.exit(1);
     }
 }
 
 main().catch((error) => {
     logger.fatal({ error: error.message, stack: error.stack }, 'Unhandled exception');
-    parentPort.postMessage('done');
+    if (isWorker) {
+        parentPort.postMessage('done');
+    }
     process.exit(1);
 });
