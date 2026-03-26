@@ -58,7 +58,7 @@
 │           ▼                       ▼                                   │
 │  ┌─────────────────────────────────────────────────────────────┐     │
 │  │              Prisma Client + LibSQL Adapter                   │     │
-│  │                      SQLite: database.db                       │     │
+│  │                      SQLite: dev.db                            │     │
 │  └─────────────────────────────────────────────────────────────┘     │
 │                              ▲                                        │
 │  ┌───────────────────────────┴───────────────────────────────────┐   │
@@ -115,7 +115,7 @@ npm run ui
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | REST API port |
-| `DATABASE_URL` | `file:database.db` | SQLite database path |
+| `DATABASE_URL` | `file:dev.db` | SQLite database path |
 | `LOG_LEVEL` | `info` | trace/debug/info/warn/error |
 | `MAX_PAGES` | `5` | Max pages per parse run |
 | `MAX_RETRIES` | `3` | Max retry attempts on error |
@@ -324,7 +324,7 @@ WB/
 │   ├── app.log           # Structured logs
 │   └── server.log        # Server logs
 ├── session.json          # WB session (auto-generated)
-├── database.db           # SQLite database (auto-created)
+├── dev.db                # SQLite database (auto-created)
 └── package.json
 ```
 

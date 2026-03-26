@@ -4,7 +4,7 @@ export default defineConfig({
   client: {
     adapter: {
       libsql: {
-        url: process.env.DATABASE_URL || 'file:database.db',
+        url: process.env.DATABASE_URL || 'file:dev.db',
       },
     },
   },

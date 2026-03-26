@@ -31,7 +31,7 @@ const logger = pino({
 
 // Initialize Prisma with LibSQL adapter
 const libsql = new PrismaLibSql({
-    url: process.env.DATABASE_URL || 'file:database.db',
+    url: process.env.DATABASE_URL || 'file:dev.db',
 });
 const prisma = new PrismaClient({
     adapter: libsql,

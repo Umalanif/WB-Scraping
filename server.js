@@ -38,7 +38,7 @@ const logger = pino({
 
 // Initialize Prisma Client with LibSQL adapter
 const libsql = new PrismaLibSql({
-    url: process.env.DATABASE_URL || 'file:database.db',
+    url: process.env.DATABASE_URL || 'file:dev.db',
 });
 const prisma = new PrismaClient({
     adapter: libsql,
@@ -385,7 +385,7 @@ app.get('/api/export/excel', async (req, res) => {
 app.post('/api/prisma/studio', (req, res) => {
     logger.info('Launching Prisma Studio...');
 
-    const databaseUrl = process.env.DATABASE_URL || 'file:database.db';
+    const databaseUrl = process.env.DATABASE_URL || 'file:dev.db';
     
     exec(`npx prisma studio --url "${databaseUrl}"`, (error, stdout, stderr) => {
         if (error) {
