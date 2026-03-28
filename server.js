@@ -57,6 +57,19 @@ let currentStatus = {
     startTime: null,
 };
 
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    logger.info('Graceful shutdown initiated');
+    await prisma.$disconnect();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    logger.info('SIGTERM received, shutting down');
+    await prisma.$disconnect();
+    process.exit(0);
+});
+
 // Middleware
 app.use(express.json());
 
@@ -84,16 +97,16 @@ app.get('/api/status', (req, res) => {
 // GET /api/logs - Return last 100 lines from app.log
 app.get('/api/logs', (req, res) => {
     const logPath = join(__dirname, 'logs', 'app.log');
-    
+
     try {
         if (!fs.existsSync(logPath)) {
             return res.json({ lines: [], error: null });
         }
-        
+
         const content = fs.readFileSync(logPath, 'utf-8');
         const allLines = content.split('\n').filter(line => line.trim() !== '');
         const lastLines = allLines.slice(-100);
-        
+
         res.json({ lines: lastLines, error: null });
     } catch (error) {
         logger.error({ error: error.message }, 'Failed to read logs');

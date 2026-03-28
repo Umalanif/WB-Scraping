@@ -70,3 +70,23 @@ export function validateSession(data) {
 export function cookiesToHeaderString(cookies) {
     return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
 }
+
+/**
+ * Schema for SKU array validation (Express API input)
+ * Accepts array of numbers or numeric strings
+ */
+export const SkuArraySchema = z.array(
+    z.union([
+        z.number(),
+        z.string().regex(/^\d+$/).transform((val) => parseInt(val, 10)),
+    ])
+).min(1).max(100); // 1-100 SKUs per request
+
+/**
+ * Validates SKU array input
+ * @param {unknown} data - Raw data to validate
+ * @returns {{ success: boolean, data?: number[], error?: z.ZodError }}
+ */
+export function validateSkuArray(data) {
+    return SkuArraySchema.safeParse(data);
+}

@@ -1,18 +1,18 @@
-# WB Parser — Enterprise Wildberries Product Scraper
+# WB Parser — Wildberries Product Scraper
 
 ![Node.js](https://img.shields.io/badge/Node.js-22.x-green) ![License](https://img.shields.io/badge/License-ISC-blue) ![API](https://img.shields.io/badge/API-REST-brightgreen) ![Database](https://img.shields.io/badge/Database-SQLite/LibSQL-orange)
 
-> **Production-grade scraper for Wildberries marketplace** with automated session harvesting via Playwright, job scheduler, and REST API for orchestration. Collects article IDs, prices, brands, ratings, reviews, and product image URLs.
+> Production-grade scraper for Wildberries marketplace with automated session harvesting, job scheduler, and REST API.
 
 ---
 
 ## Key Features
 
 - **Bree automation** — job scheduler with configurable intervals (miner: 1h, parser: 15min)
-- **Playwright session mining (Crawlee)** — headless browser automatically extracts `x_wbaas_token` and cookies
+- **Playwright session mining** — headless browser automatically extracts `x_wbaas_token` and cookies
 - **Header rotation** — `got-scraping` with dynamic User-Agent and request header generation
 - **Retry with exponential backoff** — automatic retry on 403/429/CAPTCHA up to 3 attempts
-- **Excel export (ExcelJS)** — formatted reports with colors, autofilter, and Moscow timezone
+- **Excel export** — formatted reports with colors, autofilter, and Moscow timezone
 - **Prisma ORM + LibSQL** — SQLite database with audit trail (createdAt, updatedAt)
 - **Zod validation** — strict Product and SessionData checks at runtime
 - **Pino logging** — dual-output: stdout (pretty) + file `logs/app.log`
@@ -49,8 +49,8 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │  index.js — Bree Scheduler                                            │
 │  ┌─────────────────┐    ┌─────────────────┐                         │
-│  │ miner.js        │    │ parser.js        │                         │
-│  │ (Crawlee)       │───▶│ (got-scraping)   │                         │
+│  │ miner.js        │───▶│ parser.js        │                         │
+│  │ (Crawlee)       │    │ (got-scraping)   │                         │
 │  │ Extracts        │    │ Scrapes products │                         │
 │  │ x_wbaas_token   │    │ from Search API  │                         │
 │  └────────┬────────┘    └────────┬────────┘                         │
@@ -288,22 +288,7 @@ model Product {
 
 ### JSDoc Typing
 
-The project uses **JSDoc annotations** instead of TypeScript for type documentation:
-
-```javascript
-/**
- * @typedef {Object} Product
- * @property {number} id - Wildberries product ID
- * @property {string} name - Product name/title
- * @property {number} [price] - Original price in rubles
- * @property {number} [salePrice] - Sale price in rubles
- * @property {string} [brand] - Product brand
- * @property {number} [rating] - Product rating (0-5)
- * @property {number} [reviews] - Number of reviews
- * @property {string|null} [image] - Product image URL
- * @property {string} sourceUrl - Source URL for Audit Trail
- */
-```
+The project uses **JSDoc annotations** instead of TypeScript for type documentation.
 
 ### Project Structure
 
@@ -318,14 +303,14 @@ WB/
 │   ├── miner.js          # Crawlee session extractor
 │   └── parser.js         # WB API product parser
 ├── prisma/
-│   └── schema.prisma      # Database schema
+│   ├── schema.prisma     # Database schema
+│   └── prisma.config.ts  # Prisma configuration
 ├── public/               # Static frontend files
 ├── logs/                 # Application logs
 │   ├── app.log           # Structured logs
 │   └── server.log        # Server logs
 ├── session.json          # WB session (auto-generated)
-├── dev.db                # SQLite database (auto-created)
-└── package.json
+└── dev.db                # SQLite database (auto-created)
 ```
 
 ### Working with Sessions

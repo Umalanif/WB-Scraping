@@ -13,17 +13,18 @@ datasource db {
 }
 
 model Product {
-  id        Int      @id @unique // Wildberries article ID (unique identifier)
-  name      String
-  price     Float?
-  salePrice Float?
-  brand     String?
-  rating    Float?
-  reviews   Int?
-  image     String?  // Сгенерированный URL изображения Wildberries
+  id            Int      @id @unique // Wildberries article ID (unique identifier)
+  name          String
+  price         Float?
+  salePrice     Float?
+  brand         String?
+  rating        Float?
+  reviews       Int?
+  image         String?  // Сгенерированный URL изображения Wildberries
+  totalQuantity Int      @default(0) // Aggregated inventory across all warehouses
 
   // Audit Trail (per storage.md requirements)
-  sourceUrl String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  sourceUrl     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
 }
