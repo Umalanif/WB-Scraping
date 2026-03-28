@@ -72,6 +72,46 @@
 
 ## Installation & Usage
 
+### Option 1: Docker (Recommended)
+
+Quick start with Docker Compose:
+
+```bash
+# 1. Clone repository and navigate to project
+git clone https://github.com/Umalanif/WB-Scraping.git
+cd WB-Scraping
+
+# 2. Create environment file from example
+cp .env.example .env
+# Edit .env as needed (optional - defaults work out of the box)
+
+# 3. Start with Docker Compose
+docker compose up -d
+
+# 4. Check logs
+docker compose logs -f
+
+# 5. Access API at http://localhost:3000
+```
+
+**Docker Compose Features:**
+- Automatic database initialization with `prisma db push`
+- Persistent volumes for `dev.db`, `logs`, and Prisma generated files
+- Health check endpoint monitoring
+- Automatic restart on failure
+
+**Environment Variables in Docker:**
+All variables from `.env` can be overridden in `docker-compose.yml` or via `.env` file.
+
+**Stopping Docker:**
+```bash
+docker compose down
+```
+
+---
+
+### Option 2: Manual Installation
+
 ### Prerequisites
 
 - Node.js 18+ (recommended 22.x)

@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  wb-parser:
+    image: ghcr.io/umalanif/wb-scraping:latest
+    container_name: wb-parser
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      # Persist SQLite database
+      - ./dev.db:/app/dev.db
+      # Persist application logs
+      - ./logs:/app/logs
+      # Persist Prisma generated files
+      - ./generated:/app/generated
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:dev.db
+      - HEADLESS=${HEADLESS:-true}
+      - MAX_PAGES=${MAX_PAGES:-5}
+      - OUTPUT_JSON=${OUTPUT_JSON:-false}
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - BASE_DELAY=${BASE_DELAY:-5000}
+      - REQUEST_DELAY=${REQUEST_DELAY:-3000}
+      - RATE_LIMIT_RPS=${RATE_LIMIT_RPS:-2}
+      - WB_COOKIE=${WB_COOKIE:-}
+      - WB_API_BASE=${WB_API_BASE:-https://basket-09.wbbasket.ru}
+      - PRICE_DROP_THRESHOLD=${PRICE_DROP_THRESHOLD:-10}
+      - PROXY_LIST=${PROXY_LIST:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

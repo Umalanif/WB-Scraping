@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Database files (will be mounted as volume)
+dev.db
+dev.db-shm
+dev.db-wal
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Generated Prisma client (regenerated in container)
+generated/prisma
+
+# Session data (sensitive)
+session.json
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+coverage
+.nyc_output
+
+# Docker files (not needed inside container)
+docker-compose.yml
+.dockerignore
+
+# GitHub Actions
+.github
+
+# Documentation
+*.md
+!README.md
